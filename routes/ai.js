@@ -9,65 +9,97 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 const COST_PER_MESSAGE = 18;
 
+// ============================
+// 🤖 AI CHAT ROUTE
+// ============================
 router.post("/chat", async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
 
     if (!authHeader) {
-      return res.status(401).json({ error: "No token" });
+      return res.status(401).json({ error: "No token provided" });
     }
 
     const token = authHeader.split(" ")[1];
 
-    // 🔐 VERIFY USER
+    // ============================
+    // 🔐 VERIFY FIREBASE USER
+    // ============================
     const decoded = await admin.auth().verifyIdToken(token);
     const uid = decoded.uid;
 
-    // 🔥 GET USER TOKENS
     const userRef = admin.firestore().collection("userTokens").doc(uid);
-    const snap = await userRef.get();
 
-    if (!snap.exists) {
-      return res.status(403).json({ error: "No token account found" });
-    }
+    // ============================
+    // 🔥 ATOMIC TRANSACTION (IMPORTANT)
+    // prevents double spending
+    // ============================
+    const result = await admin.firestore().runTransaction(async (tx) => {
+      const snap = await tx.get(userRef);
 
-    const userData = snap.data();
-    const balance = userData.balance || 0;
+      if (!snap.exists) {
+        throw new Error("NO_ACCOUNT");
+      }
 
-    // 🚫 BLOCK if not enough tokens
-    if (balance < COST_PER_MESSAGE) {
+      const balance = snap.data().balance || 0;
+
+      // 🚫 BLOCK IF INSUFFICIENT TOKENS
+      if (balance < COST_PER_MESSAGE) {
+        throw new Error("NOT_ENOUGH_TOKENS");
+      }
+
+      const { messages = [], context = "" } = req.body;
+
+      // ============================
+      // 🤖 CALL GEMINI AI
+      // ============================
+      const model = genAI.getGenerativeModel({
+        model: "gemini-2.5-flash",
+      });
+
+      const prompt = `
+Context:
+${context}
+
+Conversation:
+${messages.map((m) => `${m.role}: ${m.text}`).join("\n")}
+`;
+
+      const aiResult = await model.generateContent(prompt);
+      const reply = aiResult.response.text();
+
+      // ============================
+      // 💰 DEDUCT TOKENS SAFELY
+      // ============================
+      tx.update(userRef, {
+        balance: admin.firestore.FieldValue.increment(-COST_PER_MESSAGE),
+      });
+
+      return {
+        reply,
+        newBalance: balance - COST_PER_MESSAGE,
+      };
+    });
+
+    return res.json(result);
+  } catch (err) {
+    console.log("AI ERROR:", err.message);
+
+    if (err.message === "NOT_ENOUGH_TOKENS") {
       return res.status(403).json({
         error: "NOT_ENOUGH_TOKENS",
       });
     }
 
-    const { messages, context } = req.body;
+    if (err.message === "NO_ACCOUNT") {
+      return res.status(403).json({
+        error: "NO_TOKEN_ACCOUNT",
+      });
+    }
 
-    const model = genAI.getGenerativeModel({
-      model: "gemini-2.5-flash",
+    return res.status(500).json({
+      error: "Server error",
     });
-
-    const prompt = `
-    Context:
-    ${context || ""}
-
-    Conversation:
-    ${messages.map((m) => `${m.role}: ${m.text}`).join("\n")}
-    `;
-
-    const result = await model.generateContent(prompt);
-    const reply = result.response.text();
-
-    // 💰 DEDUCT TOKENS SECURELY
-    await userRef.update({
-      balance: admin.firestore.FieldValue.increment(-COST_PER_MESSAGE),
-    });
-
-    return res.json({ reply });
-
-  } catch (err) {
-    console.log(err);
-    return res.status(500).json({ error: "Server error" });
   }
 });
 
