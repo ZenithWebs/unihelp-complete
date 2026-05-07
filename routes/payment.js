@@ -8,6 +8,10 @@ router.post("/pay", async (req, res) => {
   try {
     const { amount, email, tutorialId, tutorId, userId } = req.body;
 
+    if (!userId) {
+      return res.status(400).json({ error: "Missing userId" });
+    }
+
     const payload = {
       tx_ref: "tx_" + Date.now(),
       amount,

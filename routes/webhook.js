@@ -35,8 +35,10 @@ router.post(
       const txDoc = db.collection("transactions").doc(txRef);
       const exists = await txDoc.get();
 
-      if (exists.exists) return res.sendStatus(200);
-
+        if (exists.exists) {
+          console.log("Already processed");
+          return res.sendStatus(200);
+        }
       // verify
       const verify = await axios.get(
         `https://api.flutterwave.com/v3/transactions/${data.id}/verify`,
