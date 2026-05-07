@@ -11,7 +11,6 @@ dotenv.config();
 
 const app = express();
 
-
 // ================= CORS =================
 app.use(
   cors({
@@ -23,6 +22,11 @@ app.use(
   })
 );
 
+// ================= WEBHOOK FIRST =================
+// 🔥 IMPORTANT: MUST COME BEFORE express.json()
+app.use("/api", webhookRoutes);
+
+// ================= JSON =================
 app.use(express.json());
 
 // ================= RATE LIMIT =================
@@ -36,7 +40,6 @@ app.use(
 // ================= ROUTES =================
 app.use("/api/ai", aiRoutes);
 app.use("/api", paymentRoutes);
-app.use("/api", webhookRoutes);
 
 // ================= START =================
 const PORT = process.env.PORT || 5000;
