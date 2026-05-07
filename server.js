@@ -8,19 +8,148 @@ import crypto from "crypto";
 import aiRoutes from "./routes/ai.js";
 import { db } from "./firebase.js";
 import nodemailer from "nodemailer";
+const app = express();
 
 dotenv.config();
 
-const app = express();
+app.use(
+  cors({
+    origin: [
+      "https://unihelp-flax.vercel.app",
+      "http://localhost:5173"
+    ],
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    credentials: true,
+    allowedHeaders: ["Content-Type", "Authorization"]
+  })
+);
+app.options(/.*/, cors());
+
+app.post(
+  "/api/payment/webhook",
+  express.raw({ type: "application/json" }),
+  async (req, res) => {
+    try {
+      const secretHash = process.env.FLW_SECRET_HASH;
+      const signature = req.headers["verif-hash"];
+
+      // ✅ verify signature
+      if (!signature || signature !== secretHash) {
+        console.log("❌ Invalid webhook signature");
+        return res.sendStatus(401);
+      }
+
+      // ✅ parse raw body safely
+      const payload = JSON.parse(req.body.toString());
+
+      console.log("🔥 WEBHOOK RECEIVED:", payload);
+
+      // only completed charges
+      if (payload.event !== "charge.completed") {
+        return res.sendStatus(200);
+      }
+
+      const data = payload.data;
+
+      if (data.status !== "successful") {
+        return res.sendStatus(200);
+      }
+
+      const txRef = data.tx_ref;
+      const transactionId = data.id;
+
+      // ============================
+      // 🔒 PREVENT DUPLICATES
+      // ============================
+      const txRefDoc = db.collection("transactions").doc(txRef);
+
+      const existing = await txRefDoc.get();
+
+      if (existing.exists) {
+        console.log("⚠️ Transaction already processed");
+        return res.sendStatus(200);
+      }
+
+      // ============================
+      // 🔍 VERIFY WITH FLUTTERWAVE
+      // ============================
+      const verifyRes = await axios.get(
+        `https://api.flutterwave.com/v3/transactions/${transactionId}/verify`,
+        {
+          headers: {
+            Authorization: `Bearer ${process.env.FLW_SECRET_KEY}`,
+          },
+        }
+      );
+
+      const transaction = verifyRes.data.data;
+
+      if (transaction.status !== "successful") {
+        console.log("❌ Verification failed");
+        return res.sendStatus(400);
+      }
+
+      const meta = transaction.meta;
+
+      if (!meta?.userId || !meta?.tutorialId) {
+        console.log("❌ Missing metadata");
+        return res.sendStatus(400);
+      }
+
+      // ============================
+      // 💾 SAVE PURCHASE
+      // ============================
+      const batch = db.batch();
+
+      const purchaseRef = db.collection("purchases").doc();
+
+      const earningsRef = db.collection("tutorEarnings").doc();
+
+      const revenueRef = db.collection("adminRevenue").doc();
+
+      batch.set(purchaseRef, {
+        userId: meta.userId,
+        tutorId: meta.tutorId,
+        tutorialId: meta.tutorialId,
+        amount: meta.amount,
+        txRef,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      batch.set(earningsRef, {
+        tutorId: meta.tutorId,
+        amount: meta.tutorShare,
+        txRef,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      batch.set(revenueRef, {
+        amount: meta.platformShare,
+        txRef,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      batch.set(txRefDoc, {
+        status: "processed",
+        txRef,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      await batch.commit();
+
+      console.log("✅ PURCHASE SAVED");
+
+      return res.sendStatus(200);
+    } catch (err) {
+      console.error("❌ WEBHOOK ERROR:", err);
+      return res.sendStatus(500);
+    }
+  }
+);
+
+app.use(express.json());
+
 app.use("/api/ai", aiRoutes);
-// ============================
-// 🛡 SECURITY MIDDLEWARE
-// ============================
-app.use(cors({
-  origin: "https://unihelp-flax.vercel.app"
-}));
-
-
 
 // ================= EMAIL TRANSPORTER =================
 const transporter = nodemailer.createTransport({
@@ -213,133 +342,7 @@ app.post("/api/pay", verifyUser, async (req, res) => {
   }
 });
 
-// ============================
-// 🔔 WEBHOOK (IDEMPOTENT + SAFE)
-// ============================
 
-app.post(
-  "/api/payment/webhook",
-  express.raw({ type: "application/json" }),
-  async (req, res) => {
-    try {
-      const secretHash = process.env.FLW_SECRET_HASH;
-      const signature = req.headers["verif-hash"];
-
-      // ✅ verify signature
-      if (!signature || signature !== secretHash) {
-        console.log("❌ Invalid webhook signature");
-        return res.sendStatus(401);
-      }
-
-      // ✅ parse raw body safely
-      const payload = JSON.parse(req.body.toString());
-
-      console.log("🔥 WEBHOOK RECEIVED:", payload);
-
-      // only completed charges
-      if (payload.event !== "charge.completed") {
-        return res.sendStatus(200);
-      }
-
-      const data = payload.data;
-
-      if (data.status !== "successful") {
-        return res.sendStatus(200);
-      }
-
-      const txRef = data.tx_ref;
-      const transactionId = data.id;
-
-      // ============================
-      // 🔒 PREVENT DUPLICATES
-      // ============================
-      const txRefDoc = db.collection("transactions").doc(txRef);
-
-      const existing = await txRefDoc.get();
-
-      if (existing.exists) {
-        console.log("⚠️ Transaction already processed");
-        return res.sendStatus(200);
-      }
-
-      // ============================
-      // 🔍 VERIFY WITH FLUTTERWAVE
-      // ============================
-      const verifyRes = await axios.get(
-        `https://api.flutterwave.com/v3/transactions/${transactionId}/verify`,
-        {
-          headers: {
-            Authorization: `Bearer ${process.env.FLW_SECRET_KEY}`,
-          },
-        }
-      );
-
-      const transaction = verifyRes.data.data;
-
-      if (transaction.status !== "successful") {
-        console.log("❌ Verification failed");
-        return res.sendStatus(400);
-      }
-
-      const meta = transaction.meta;
-
-      if (!meta?.userId || !meta?.tutorialId) {
-        console.log("❌ Missing metadata");
-        return res.sendStatus(400);
-      }
-
-      // ============================
-      // 💾 SAVE PURCHASE
-      // ============================
-      const batch = db.batch();
-
-      const purchaseRef = db.collection("purchases").doc();
-
-      const earningsRef = db.collection("tutorEarnings").doc();
-
-      const revenueRef = db.collection("adminRevenue").doc();
-
-      batch.set(purchaseRef, {
-        userId: meta.userId,
-        tutorId: meta.tutorId,
-        tutorialId: meta.tutorialId,
-        amount: meta.amount,
-        txRef,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-
-      batch.set(earningsRef, {
-        tutorId: meta.tutorId,
-        amount: meta.tutorShare,
-        txRef,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-
-      batch.set(revenueRef, {
-        amount: meta.platformShare,
-        txRef,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-
-      batch.set(txRefDoc, {
-        status: "processed",
-        txRef,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-
-      await batch.commit();
-
-      console.log("✅ PURCHASE SAVED");
-
-      return res.sendStatus(200);
-    } catch (err) {
-      console.error("❌ WEBHOOK ERROR:", err);
-      return res.sendStatus(500);
-    }
-  }
-);
-
-app.use(express.json());
 
 // ============================
 // 💸 WITHDRAWAL (WALLET BASED)
