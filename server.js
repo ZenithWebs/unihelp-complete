@@ -1,7 +1,7 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import admin from "firebase-admin";
+import admin, { db } from "./firebase.js";
 import rateLimit from "express-rate-limit";
 import aiRoutes from "./routes/ai.js";
 import paymentRoutes from "./routes/payment.js";
@@ -11,12 +11,6 @@ dotenv.config();
 
 const app = express();
 
-// Firebase init MUST be once
-if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.applicationDefault(),
-  });
-}
 
 // ================= CORS =================
 app.use(

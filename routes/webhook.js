@@ -10,6 +10,7 @@ router.post(
   express.raw({ type: "application/json" }),
   async (req, res) => {
     try {
+      console.log("🔥 WEBHOOK CALLED");
       const secretHash = process.env.FLW_SECRET_HASH;
       const signature = req.headers["verif-hash"];
 
@@ -56,6 +57,8 @@ router.post(
       if (!meta?.userId || !meta?.tutorialId) {
         return res.sendStatus(400);
       }
+
+      console.log("FIREBASE TEST:", typeof db.collection);
 
       // 🔥 SAVE PURCHASE (THIS IS WHAT UNLOCKS TUTORIAL)
       await db.collection("purchases").add({
