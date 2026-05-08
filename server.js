@@ -44,6 +44,7 @@ app.use("/api/ai", aiRoutes);
 app.use("/api", paymentRoutes);
 app.use("/api", flutterwaveRoutes);
 // ================= START =================
+const PORT = process.env.PORT || 5000;
 
 cron.schedule("0 * * * *", async () => {
   console.log("⏰ Checking inactive users...");
@@ -78,6 +79,9 @@ cron.schedule("0 * * * *", async () => {
   });
 });
 
-app.get('/', (res, req) => {
+app.get('/', (req, res) => {
   res.send('Unihelp backend is running')
 })
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
