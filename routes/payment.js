@@ -16,9 +16,15 @@ router.post("/pay", async (req, res) => {
       tx_ref: "tx_" + Date.now(),
       amount,
       currency: "NGN",
+
       redirect_url:
         "https://unihelp-flax.vercel.app/tutorialmarketplace?status=successful",
+
+      webhook_url:
+        "https://unihelp-complete.onrender.com/api/payment/webhook",
+
       customer: { email },
+
       meta: {
         userId,
         tutorId,

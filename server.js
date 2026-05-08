@@ -6,6 +6,7 @@ import rateLimit from "express-rate-limit";
 import aiRoutes from "./routes/ai.js";
 import paymentRoutes from "./routes/payment.js";
 import webhookRoutes from "./routes/webhook.js";
+import flutterwaveRoutes from "./routes/flutterwave.js";
 import cron from "node-cron";
 
 dotenv.config();
@@ -41,7 +42,7 @@ app.use(
 // ================= ROUTES =================
 app.use("/api/ai", aiRoutes);
 app.use("/api", paymentRoutes);
-
+app.use("/api", flutterwaveRoutes);
 // ================= START =================
 const PORT = process.env.PORT || 5000;
 

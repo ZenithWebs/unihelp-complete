@@ -103,4 +103,71 @@ ${messages.map((m) => `${m.role}: ${m.text}`).join("\n")}
   }
 });
 
+import axios from "axios";
+
+router.post("/verify-payment", async (req, res) => {
+  try {
+    const { transaction_id } = req.body;
+
+    if (!transaction_id) {
+      return res.status(400).json({
+        error: "Missing transaction ID",
+      });
+    }
+
+    // VERIFY FLUTTERWAVE PAYMENT
+    const verify = await axios.get(
+      `https://api.flutterwave.com/v3/transactions/${transaction_id}/verify`,
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.FLW_SECRET_KEY}`,
+        },
+      }
+    );
+
+    const tx = verify.data.data;
+
+    if (tx.status !== "successful") {
+      return res.status(400).json({
+        error: "Payment not successful",
+      });
+    }
+
+    const meta = tx.meta;
+
+    if (!meta?.userId || !meta?.tokens) {
+      return res.status(400).json({
+        error: "Invalid payment metadata",
+      });
+    }
+
+    const ref = admin
+      .firestore()
+      .collection("userTokens")
+      .doc(meta.userId);
+
+    // ADD TOKENS
+    await ref.set(
+      {
+        balance: admin.firestore.FieldValue.increment(
+          Number(meta.tokens)
+        ),
+      },
+      { merge: true }
+    );
+
+    return res.json({
+      success: true,
+      tokensAdded: meta.tokens,
+    });
+
+  } catch (err) {
+    console.log("VERIFY PAYMENT ERROR:", err.message);
+
+    return res.status(500).json({
+      error: "Verification failed",
+    });
+  }
+});
+
 export default router;
