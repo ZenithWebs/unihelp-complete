@@ -79,6 +79,10 @@ cron.schedule("0 * * * *", async () => {
   });
 });
 
+app.get('/', (res, req) => {
+  res.send('Unihelp backend is running');
+});
+
 app.listen(PORT, () => {
   console.log("🚀 Server running on", PORT);
 });
