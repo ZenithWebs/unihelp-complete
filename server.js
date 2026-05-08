@@ -41,7 +41,6 @@ app.use(
 // ================= ROUTES =================
 app.use("/api/ai", aiRoutes);
 app.use("/api", paymentRoutes);
-app.use("/api", flutterwaveRoutes);
 // ================= START =================
 const PORT = process.env.PORT || 5000;
 
