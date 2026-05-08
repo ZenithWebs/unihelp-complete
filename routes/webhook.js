@@ -9,6 +9,8 @@ router.post(
   "/payment/webhook",
   express.raw({ type: "application/json" }),
   async (req, res) => {
+    console.log("🔥 WEBHOOK HIT");
+    console.log("HEADERS:", req.headers);
     try {
       const signature = req.headers["verif-hash"];
 
